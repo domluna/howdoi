@@ -112,3 +112,5 @@ By following these steps, you can create a basic web server using Bun and the Ho
 
 2024/04/02 15:20:25 Usage: Input Tokens: 955, Output Tokens: 453, Total Cost: $0.000805
 ```
+
+Ok, now this actually works! `-c ...` can be used as many times as you want and it can be a file or a url. In the case of a url the content in either <article>...</article> or <main>...</main> will be used.
