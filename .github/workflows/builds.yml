@@ -24,6 +24,15 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
+   - name: Create Tag
+      id: create_tag
+      uses: anothrNick/github-tag-action@1.35.0
+      env:
+        DEFAULT_BUMP: patch
+        WITH_V: true
+        DEFAULT_BRANCH: main
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
     - name: Set up Go
       uses: actions/setup-go@v3
       with:
@@ -45,8 +54,8 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: ${{ github.ref_name }}-${{ github.sha }}
-        release_name: Release ${{ github.sha }}
+        tag_name: ${{ steps.create_tag.outputs.new_tag }}
+        release_name: Release ${{ steps.create_tag.outputs.new_tag }}
         draft: false
         prerelease: false
 
