@@ -1,0 +1,98 @@
+To add support for streaming the Anthropic API responses, you can modify the `callAPI` function to handle the streaming response. Here's the updated code:
+
+```go
+func callAPI(url string, apiKey string, body RequestBody) (chan string, error) {
+	// Create a HTTP post request
+	jsonBody, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+
+	r, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return nil, err
+	}
+	r.Header.Add("content-type", "application/json")
+	r.Header.Add("x-api-key", apiKey)
+	r.Header.Add("anthropic-version", "2023-06-01")
+	r.Header.Add("anthropic-beta", "messages-2023-12-15")
+
+	client := &http.Client{}
+	res, err := client.Do(r)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		// write body
+		bodyBytes, _ := io.ReadAll(res.Body)
+		return nil, errors.New(fmt.Sprintf("API call failed with status code %d, error: %s", res.StatusCode, string(bodyBytes)))
+	}
+
+	// Set up the streaming response channel
+	respChan := make(chan string)
+
+	// Handle the streaming response
+	go func() {
+		defer close(respChan)
+
+		// Read the response body line by line
+		reader := res.Body
+		for {
+			line, err := io.ReadString('\n')
+			if err != nil {
+				if err == io.EOF {
+					return
+				}
+				log.Printf("Error reading response: %v", err)
+				return
+			}
+
+			// Check if the line is a content_block_delta event
+			if strings.Contains(line, "content_block_delta") {
+				var delta struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				}
+				if err := json.Unmarshal([]byte(line), &delta); err == nil {
+					respChan <- delta.Text
+				}
+			}
+		}
+	}()
+
+	return respChan, nil
+}
+```
+
+In the updated `callAPI` function, we're now handling the streaming response from the Anthropic API. We create a channel to send the response text back to the caller, and we read the response body line by line, looking for the `content_block_delta` events, which contain the generated text. We then send the text to the response channel.
+
+To use the streaming response, you can modify the `main` function to consume the response channel:
+
+```go
+func main() {
+	// ... (existing code)
+
+	respChan, err := callAPI(anthropicAPI, anthropicAPIKey, RequestBody{
+		Model:       models[model],
+		Messages:    []Message{{Role: "user", Content: message}},
+		MaxTokens:   maxTokens,
+		Temperature: 0.0,
+		Stream:      true,
+	})
+	if err != nil {
+		log.Println("Error calling the API:", err)
+		os.Exit(1)
+	}
+
+	// Print the streaming response
+	for text := range respChan {
+		fmt.Print(text)
+	}
+}
+```
+
+In the updated `main` function, we call the `callAPI` function with `Stream: true` in the `RequestBody`. This will trigger the streaming response handling in the `callAPI` function, and we can then consume the response channel to print the generated text as it arrives.
+
+With these changes, your application should now support streaming the Anthropic API responses.
