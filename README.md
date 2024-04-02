@@ -60,6 +60,8 @@ That's the basic setup for a web server using Bun. As you progress, you can expl
 
 2024/04/02 13:27:52 Usage: Input Tokens: 17, Output Tokens: 529, Total Cost: $0.000666
 
+***
+
 Oh no! This doesn't actually work there's no template called my-web-server. Let's add some context:
 
 
@@ -113,5 +115,6 @@ By following these steps, you can create a basic web server using Bun and the Ho
 
 2024/04/02 15:20:25 Usage: Input Tokens: 955, Output Tokens: 453, Total Cost: $0.000805
 
+***
 
 Ok, now this actually works! `-c ...` can be used as many times as you want and it can be a file or a url. In the case of a url the content in either <article>...</article> or <main>...</main> will be used.
