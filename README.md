@@ -6,16 +6,18 @@ Haiku is the model used by default. You can change the model to "sonnet" or "opu
 
 (!Img)[./img.png]
 
+## Install
+
 Download:
 
 ```sh
 go install https://github.com/domluna/howdoi@latest
 ```
 
-Run:
+## Usage
 
-```sh
-λ ~/code/howdoi: howdoi "how do i write a web server with bun"
+### λ ~/code/howdoi: howdoi "how do i write a web server with bun"
+
 To write a web server with Bun, you can follow these steps:
 
 1. **Install Bun**: First, you need to install Bun on your system. You can download it from the official Bun website (https://bun.sh/) and follow the installation instructions for your operating system.
@@ -57,13 +59,12 @@ To write a web server with Bun, you can follow these steps:
 That's the basic setup for a web server using Bun. As you progress, you can explore more advanced features and functionality provided by Bun, such as routing, middleware, database integration, and more. The Bun documentation (https://bun.sh/docs) is a great resource to learn more about building web applications with Bun.
 
 2024/04/02 13:27:52 Usage: Input Tokens: 17, Output Tokens: 529, Total Cost: $0.000666
-```
 
 Oh no! This doesn't actually work there's no template called my-web-server. Let's add some context:
 
 
-```
-λ ~/code/howdoi: howdoi "how do i write a web server with bun" -c https://bun.sh/guides/ecosystem/hono
+### λ ~/code/howdoi: howdoi "how do i write a web server with bun" -c https://bun.sh/guides/ecosystem/hono
+
 2024/04/02 15:20:21 Scraping the web page: https://bun.sh/guides/ecosystem/hono
 Based on the information provided in the document, here's how you can write a web server using Bun and the Hono framework:
 
@@ -111,6 +112,6 @@ export default app;
 By following these steps, you can create a basic web server using Bun and the Hono framework. You can then further customize and expand the server to meet your application's requirements.
 
 2024/04/02 15:20:25 Usage: Input Tokens: 955, Output Tokens: 453, Total Cost: $0.000805
-```
+
 
 Ok, now this actually works! `-c ...` can be used as many times as you want and it can be a file or a url. In the case of a url the content in either <article>...</article> or <main>...</main> will be used.
