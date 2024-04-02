@@ -117,4 +117,4 @@ By following these steps, you can create a basic web server using Bun and the Ho
 
 ***
 
-Ok, now this actually works! `-c ...` can be used as many times as you want and it can be a file or a url. In the case of a url the content in either <article>...</article> or <main>...</main> will be used.
+Ok, now this actually works! `-c ...` can be used as many times as you want and it can be a file or a url. In the case of a url the content in either article or main tags will be used; article will be tried first.
