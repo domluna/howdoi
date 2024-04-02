@@ -22,9 +22,9 @@ To write a web server with Bun, you can follow these steps:
 
 2. **Create a new Bun project**: Open your terminal or command prompt and navigate to the directory where you want to create your project. Then, run the following command to create a new Bun project:
 
-   \`\`\`
+   ```
    bun create my-web-server
-   \`\`\`
+   ```
 
    This will create a new directory called `my-web-server` with the necessary files and folders for a Bun project.
 
@@ -32,13 +32,13 @@ To write a web server with Bun, you can follow these steps:
 
 4. **Write the server code**: In the `server.js` file, you can start by importing the necessary Bun modules and creating a new server instance. Here's an example:
 
-   \`\`\`javascript
+   ```javascript
    import { serve } from "bun";
 
    serve((request) => {
      return new Response("Hello, World!");
    });
-   \`\`\`
+   ```
 
    This code creates a simple web server that responds with "Hello, World!" for every incoming request.
 
@@ -46,9 +46,9 @@ To write a web server with Bun, you can follow these steps:
 
 5. **Run the server**: To start the server, run the following command in your terminal:
 
-   \`\`\`
+   ```
    bun run server.js
-   \`\`\`
+   ```
 
    This will start the Bun server and make it available at `http://localhost:3000` (or a different port if you've configured it).
 
@@ -74,9 +74,9 @@ Based on the information provided in the document, here's how you can write a we
 
 2. **Create the server**:
    - In the `src/index.ts` file, import the `Hono` class from the `hono` package:
-     \`\`\`typescript
+     ```typescript
      import { Hono } from "hono";
-     \`\`\`
+     ```
    - Create a new `Hono` instance and define your routes:
      ```typescript
      const app = new Hono();
@@ -84,9 +84,9 @@ Based on the information provided in the document, here's how you can write a we
      app.get("/", (c) => c.text("Hono!"));
      ```
    - Export the `app` instance as the default export:
-     \`\`\`typescript
+     ```typescript
      export default app;
-     \`\`\`
+     ```
 
 3. **Start the development server**:
    - Run the development server using the `bun run dev` command.
@@ -98,7 +98,7 @@ Based on the information provided in the document, here's how you can write a we
 
 Here's the complete code for the `src/index.ts` file:
 
-\`\`\`typescript
+```typescript
 import { Hono } from "hono";
 
 const app = new Hono();
@@ -106,7 +106,7 @@ const app = new Hono();
 app.get("/", (c) => c.text("Hono!"));
 
 export default app;
-\`\`\`
+```
 
 By following these steps, you can create a basic web server using Bun and the Hono framework. You can then further customize and expand the server to meet your application's requirements.
 
