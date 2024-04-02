@@ -34,12 +34,13 @@ jobs:
         go build -o main -v ./main.go
 
     - name: Zip Artifact
+      if: matrix.os == 'windows-latest'
       run: |
-        if (${{ matrix.os }} -eq 'windows-latest') {
-          7z a ${{ matrix.target }}.zip main.exe
-        } else {
-          zip ${{ matrix.target }}.zip main
-        }
+        7z a ${{ matrix.target }}.zip main
+    - name: Zip Artifact
+      if: matrix.os != 'windows-latest'
+      run: |
+        zip ${{ matrix.target }}.zip main
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v3
