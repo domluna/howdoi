@@ -298,6 +298,10 @@ func main() {
 
 	apiURL := "https://api.anthropic.com/v1/messages"
 	apiKey := os.Getenv("ANTHROPIC_API_KEY")
+	if apiKey == "" {
+		log.Println("Error: ANTHROPIC_API_KEY environment variable is not set")
+		os.Exit(1)
+	}
 
 	var rootCmd = &cobra.Command{
 		Use:   "howdoi [message]",
