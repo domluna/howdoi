@@ -14,6 +14,8 @@ Download:
 go install https://github.com/domluna/howdoi@latest
 ```
 
+or download the latest release.
+
 Export your api key as `ANTHROPIC_API_KEY`.
 
 ## Usage
