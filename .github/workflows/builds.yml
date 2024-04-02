@@ -35,7 +35,11 @@ jobs:
 
     - name: Zip Artifact
       run: |
-        zip ${{ matrix.target }}.zip main
+        if (${{ matrix.os }} -eq 'windows-latest') {
+          7z a ${{ matrix.target }}.zip main.exe
+        } else {
+          zip ${{ matrix.target }}.zip main
+        }
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v3
