@@ -85,7 +85,7 @@ jobs:
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
         asset_path: ./darwin-arm64/darwin-arm64.zip
-        asset_name: darwin-arm64.zip
+        asset_name: howdoi-${{ github.sha }}-darwin-arm64.zip
         asset_content_type: application/zip
 
     - name: Upload Release Assets
@@ -95,7 +95,7 @@ jobs:
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
         asset_path: ./linux-amd64/linux-amd64.zip
-        asset_name: linux-amd64.zip
+        asset_name: howdoi-${{ github.sha }}-linux-amd64.zip
         asset_content_type: application/zip
 
     - name: Upload Release Assets
@@ -105,5 +105,5 @@ jobs:
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
         asset_path: ./windows-amd64/windows-amd64.zip
-        asset_name: windows-amd64.zip
+        asset_name: howdoi-${{ github.sha }}-windows-amd64.zip
         asset_content_type: application/zip
