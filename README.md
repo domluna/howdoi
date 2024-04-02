@@ -4,7 +4,7 @@ Simple CLI tool that targets Anthropic Claude 3 LLM APIs to figure how to do stu
 
 Haiku is the model used by default. You can change the model to "sonnet" or "opus" with the -m flag: `... -m "opus"`.
 
-[!Img](./img.png)
+![Img](./img.png)
 
 ## Install
 
