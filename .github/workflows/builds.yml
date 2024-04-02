@@ -82,6 +82,3 @@ jobs:
         asset_path: ./${{ matrix.target }}.zip
         asset_name: ${{ matrix.target }}.zip
         asset_content_type: application/zip
-      strategy:
-        matrix:
-          target: [darwin-arm64, linux-amd64, windows-amd64]
