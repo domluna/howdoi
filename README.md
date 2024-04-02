@@ -120,3 +120,30 @@ By following these steps, you can create a basic web server using Bun and the Ho
 ***
 
 Ok, now this actually works! `-c ...` can be used as many times as you want and it can be a file or a url. In the case of a url the content in either article or main tags will be used; article will be tried first.
+
+## Extra
+
+Content is written to stdout so you can pipe the content to a file.
+
+```
+λ ~/code/howdoi: howdoi "add a line break to a markdown file. the line break should be visible, like a clear separation of two sections" > foo.txt
+2024/04/02 15:34:47 Usage: Input Tokens: 30, Output Tokens: 75, Total Cost: $0.000101
+λ ~/code/howdoi: cat foo.txt
+───────┬─────────────────────────────────────────────────────────────────────────────────
+       │ File: foo.txt
+───────┼─────────────────────────────────────────────────────────────────────────────────
+   1   │ To add a visible line break in a Markdown file, you can use the HTML `<br>` tag
+       │ or three consecutive asterisks `***`.
+   2   │
+   3   │ Here's an example:
+   4   │
+   5   │ Section 1
+   6   │
+   7   │ ***
+   8   │
+   9   │ Section 2
+  10   │
+  11   │ This will create a clear separation between the two sections, with the line brea
+       │ k being visible in the rendered Markdown.
+  12   │
+```
