@@ -199,8 +199,6 @@ func callAPIStreaming(url string, apiKey string, body RequestBody) (chan string,
 		return nil, err
 	}
 
-	fmt.Println(string(jsonBody))
-
 	r, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return nil, err
@@ -405,7 +403,6 @@ func main() {
 
 			message := Message{Role: "user"}
 			for _, a := range args {
-				fmt.Println(isAcceptedImageFile(a))
 				if ext, ok := isAcceptedImageFile(a); ok {
 					imageContent, err := os.ReadFile(a)
 					if err != nil {
