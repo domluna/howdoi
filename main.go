@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -40,9 +41,25 @@ var modelCosts = map[string]Cost{
 	"claude-3-opus-20240229":   {Input: 15.0 / 1000000, Output: 75.0 / 1000000},
 }
 
+type TextContent struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+type Source struct {
+	Type      string `json:"type"`
+	Data      string `json:"data"`
+	MediaType string `json:"media_type"`
+}
+
+type ImageContent struct {
+	Type   string `json:"type"`
+	Source Source `json:"source"`
+}
+
 type Message struct {
 	Role    string `json:"role"`
-	Content string `json:"content"`
+	Content []any  `json:"content"`
 }
 
 type RequestBody struct {
@@ -182,6 +199,8 @@ func callAPIStreaming(url string, apiKey string, body RequestBody) (chan string,
 		return nil, err
 	}
 
+	fmt.Println(string(jsonBody))
+
 	r, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return nil, err
@@ -295,6 +314,18 @@ var documentTemplate = `
 {{- end}}
 </documents>`
 
+func isAcceptedImageFile(file string) (string, bool) {
+	for _, ext := range []string{".jpg", ".jpeg", ".png", ".gif", ".webp"} {
+		if strings.HasSuffix(strings.ToLower(file), ext) {
+			if ext == ".jpg" {
+				return ".jpeg", true
+			}
+			return ext, true
+		}
+	}
+	return "", false
+}
+
 func main() {
 	var model string
 	var maxTokens int
@@ -309,17 +340,24 @@ func main() {
 	}
 
 	var rootCmd = &cobra.Command{
-		Use:   "howdoi [message]",
-		Short: "CLI tool to interact with the Anthropic API",
-		Args:  cobra.MaximumNArgs(1),
+		Use:   "howdoi [messages...]",
+		Short: "CLI tool to interact with the Anthropic API. Messages can be written text or image files.",
+		Args:  cobra.MinimumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			var message string
 			var documents []struct {
 				Index   int
 				Source  string
 				Content string
 			}
 			var contextContent string
+
+			log.Println("Context Files:", contextFiles)
+
+			// Combine context and user message
+			if len(args) <= 0 {
+				log.Println("Error: No messages provided")
+				os.Exit(1)
+			}
 
 			if len(contextFiles) > 0 {
 				contextContent = "Here are some documents for you to reference for your task:\n\n"
@@ -365,16 +403,24 @@ func main() {
 				contextContent += docBuffer.String()
 			}
 
-			// Combine context and user message
-			if len(args) > 0 {
-				if contextContent == "" {
-					message = args[0]
+			message := Message{Role: "user"}
+			for _, a := range args {
+				fmt.Println(isAcceptedImageFile(a))
+				if ext, ok := isAcceptedImageFile(a); ok {
+					imageContent, err := os.ReadFile(a)
+					if err != nil {
+						log.Println("Error reading image file:", err)
+						os.Exit(1)
+					}
+					base64String := base64.StdEncoding.EncodeToString(imageContent)
+					src := Source{Data: base64String, MediaType: "image/" + ext[1:], Type: "base64"}
+					message.Content = append(message.Content, ImageContent{Type: "image", Source: src})
+				} else if _, err := os.Stat(a); !os.IsNotExist(err) {
+					log.Println("File type not supported, skipping:", a)
+					continue
 				} else {
-					message = contextContent + "\n" + args[0]
+					message.Content = append(message.Content, TextContent{Type: "text", Text: a})
 				}
-			} else {
-				log.Println("Error: Message is required")
-				os.Exit(1)
 			}
 
 			// Check if the model is supported
@@ -386,7 +432,7 @@ func main() {
 
 			rq := RequestBody{
 				Model:       models[model],
-				Messages:    []Message{{Role: "user", Content: message}},
+				Messages:    []Message{message},
 				MaxTokens:   maxTokens,
 				Temperature: 0.0,
 				Stream:      stream,
