@@ -416,7 +416,9 @@ func main() {
 					log.Println("File type not supported, skipping:", a)
 					continue
 				} else {
-					message.Content = append(message.Content, TextContent{Type: "text", Text: a})
+					message.Content = append(message.Content, TextContent{Type: "text", Text: contextContent + "\n\n" + a})
+					// stop after we've seen the first text message
+					break
 				}
 			}
 
