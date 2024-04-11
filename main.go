@@ -293,15 +293,12 @@ func callAPIStreaming(url string, apiKey string, body RequestBody) (chan string,
 }
 
 type Document struct {
-	Index   int
 	Source  string
 	Content string
 }
 
 var documentTemplate = `
-<documents>
-{{- range .}}
-<document index="{{.Index}}">
+<document>
 <source>
 {{.Source}}
 </source>
@@ -309,8 +306,7 @@ var documentTemplate = `
 {{.Content}}
 </document_content>
 </document>
-{{- end}}
-</documents>`
+`
 
 func isAcceptedImageFile(file string) (string, bool) {
 	for _, ext := range []string{".jpg", ".jpeg", ".png", ".gif", ".webp"} {
@@ -328,7 +324,6 @@ func main() {
 	var model string
 	var maxTokens int
 	var stream bool
-	var contextFiles []string
 
 	apiURL := "https://api.anthropic.com/v1/messages"
 	apiKey := os.Getenv("ANTHROPIC_API_KEY")
@@ -337,89 +332,17 @@ func main() {
 		os.Exit(1)
 	}
 
+	tmpl := template.Must(template.New("documents").Parse(documentTemplate))
+
 	var rootCmd = &cobra.Command{
 		Use:   "howdoi [messages...]",
 		Short: "CLI tool to interact with the Anthropic API. Messages can be written text or image files.",
 		Args:  cobra.MinimumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			var documents []struct {
-				Index   int
-				Source  string
-				Content string
-			}
-			var contextContent string
-
-			log.Println("Context Files:", contextFiles)
-
 			// Combine context and user message
 			if len(args) <= 0 {
 				log.Println("Error: No messages provided")
 				os.Exit(1)
-			}
-
-			if len(contextFiles) > 0 {
-				contextContent = "Here are some documents for you to reference for your task:\n\n"
-			}
-			for i, file := range contextFiles {
-				if isFile(file) {
-					fileContent, err := os.ReadFile(file)
-					// get the name of the file
-
-					if err != nil {
-						log.Println("Error reading context file:", err)
-						os.Exit(1)
-					}
-					documents = append(documents, Document{
-						Index:   i + 1,
-						Source:  file,
-						Content: string(fileContent),
-					})
-				} else if isUrl(file) {
-					log.Printf("Scraping the web page: %s\n", file)
-					fileContent, err := scrapeWebPage(file)
-					if err != nil {
-						log.Println("Error scraping the web page:", err)
-						os.Exit(1)
-					}
-					documents = append(documents, Document{
-						Index:   i + 1,
-						Source:  file,
-						Content: fileContent,
-					})
-				} else {
-					log.Printf("Error: Unsupported context file type, skipping %s.\n", file)
-				}
-			}
-			if len(documents) > 0 {
-				// Render the template
-				var docBuffer bytes.Buffer
-				tmpl := template.Must(template.New("documents").Parse(documentTemplate))
-				if err := tmpl.Execute(&docBuffer, documents); err != nil {
-					log.Println("Error rendering the template:", err)
-					os.Exit(1)
-				}
-				contextContent += docBuffer.String()
-			}
-
-			message := Message{Role: "user"}
-			for _, a := range args {
-				if ext, ok := isAcceptedImageFile(a); ok {
-					imageContent, err := os.ReadFile(a)
-					if err != nil {
-						log.Println("Error reading image file:", err)
-						os.Exit(1)
-					}
-					base64String := base64.StdEncoding.EncodeToString(imageContent)
-					src := Source{Data: base64String, MediaType: "image/" + ext[1:], Type: "base64"}
-					message.Content = append(message.Content, ImageContent{Type: "image", Source: src})
-				} else if _, err := os.Stat(a); !os.IsNotExist(err) {
-					log.Println("File type not supported, skipping:", a)
-					continue
-				} else {
-					message.Content = append(message.Content, TextContent{Type: "text", Text: contextContent + "\n\n" + a})
-					// stop after we've seen the first text message
-					break
-				}
 			}
 
 			// Check if the model is supported
@@ -427,6 +350,60 @@ func main() {
 			if !ok {
 				log.Println("Error: Unsupported model")
 				os.Exit(1)
+			}
+
+			message := Message{Role: "user"}
+			for _, a := range args {
+				if isFile(a) {
+					if ext, ok := isAcceptedImageFile(a); ok {
+						imageContent, err := os.ReadFile(a)
+						if err != nil {
+							log.Println("Error reading image file:", err)
+							os.Exit(1)
+						}
+						base64String := base64.StdEncoding.EncodeToString(imageContent)
+						src := Source{Data: base64String, MediaType: "image/" + ext[1:], Type: "base64"}
+						message.Content = append(message.Content, ImageContent{Type: "image", Source: src})
+					} else {
+						fileContent, err := os.ReadFile(a)
+						// get the name of the file
+
+						if err != nil {
+							log.Println("Error reading context file:", err)
+							os.Exit(1)
+						}
+						d := Document{
+							Source:  a,
+							Content: string(fileContent),
+						}
+						var docBuffer bytes.Buffer
+						if err := tmpl.Execute(&docBuffer, d); err != nil {
+							log.Println("Error rendering the template:", err)
+							os.Exit(1)
+						}
+						message.Content = append(message.Content, TextContent{Type: "text", Text: docBuffer.String()})
+
+					}
+				} else if isUrl(a) {
+					log.Printf("Scraping the web page: %s\n", a)
+					fileContent, err := scrapeWebPage(a)
+					if err != nil {
+						log.Println("Error scraping the web page:", err)
+						os.Exit(1)
+					}
+					d := Document{
+						Source:  a,
+						Content: string(fileContent),
+					}
+					var docBuffer bytes.Buffer
+					if err := tmpl.Execute(&docBuffer, d); err != nil {
+						log.Println("Error rendering the template:", err)
+						os.Exit(1)
+					}
+					message.Content = append(message.Content, TextContent{Type: "text", Text: docBuffer.String()})
+				} else {
+					message.Content = append(message.Content, TextContent{Type: "text", Text: a})
+				}
 			}
 
 			rq := RequestBody{
@@ -461,7 +438,6 @@ func main() {
 
 	rootCmd.Flags().StringVarP(&model, "model", "m", "haiku", "Model to use)")
 	rootCmd.Flags().IntVarP(&maxTokens, "max-tokens", "t", 1000, "Maximum number of tokens to generate")
-	rootCmd.Flags().StringSliceVarP(&contextFiles, "context", "c", []string{}, "Context files to use")
 	rootCmd.Flags().BoolVarP(&stream, "stream", "s", true, "Stream the response")
 
 	if err := rootCmd.Execute(); err != nil {

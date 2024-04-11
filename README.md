@@ -10,15 +10,34 @@ Haiku is the model used by default. You can change the model to "sonnet" or "opu
 
 Download:
 
-```sh
-go install https://github.com/domluna/howdoi@latest
-```
-
-or download the latest release.
+You can download the latest release from the releases tab.
 
 Export your api key as `ANTHROPIC_API_KEY`.
 
 ## Usage
+
+The program takes in an array of arguments. These can be images, text files, or a plain string. If you have context you'll pass those in first and then type your question at the end.
+
+```sh
+howdoi context1.js context2.html "this is my question"
+howdoi animal.png "what is the animal in the image"
+```
+
+### Flags
+
+```sh
+
+Usage:
+  howdoi [messages...] [flags]
+
+Flags:
+  -h, --help             help for howdoi
+  -t, --max-tokens int   Maximum number of tokens to generate (default 1000)
+  -m, --model string     Model to use) (default "haiku")
+  -s, --stream           Stream the response (default true)
+```
+
+## Examples
 
 ### λ ~/code/howdoi: howdoi "how do i write a web server with bun"
 
@@ -69,7 +88,7 @@ That's the basic setup for a web server using Bun. As you progress, you can expl
 Oh no! This doesn't actually work there's no template called my-web-server. Let's add some context:
 
 
-### λ ~/code/howdoi: howdoi "how do i write a web server with bun" -c https://bun.sh/guides/ecosystem/hono
+### λ ~/code/howdoi: howdoi https://bun.sh/guides/ecosystem/hono "how do i write a web server with bun"
 
 2024/04/02 15:20:21 Scraping the web page: https://bun.sh/guides/ecosystem/hono
 Based on the information provided in the document, here's how you can write a web server using Bun and the Hono framework:
@@ -121,7 +140,7 @@ By following these steps, you can create a basic web server using Bun and the Ho
 
 ***
 
-Ok, now this actually works! `-c ...` can be used as many times as you want and it can be a file or a url. In the case of a url the content in either article or main tags will be used; article will be tried first.
+Ok, now this actually works!
 
 ## Extra
 
