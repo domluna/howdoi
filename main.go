@@ -24,6 +24,7 @@ var models = map[string]string{
 	"opus":   "claude-3-opus-20240229",
 	"sonnet": "claude-3-sonnet-20240229",
 	"haiku":  "claude-3-haiku-20240307",
+	"gpt":    "gpt-4-turbo",
 }
 
 type Cost struct {
@@ -39,6 +40,7 @@ var modelCosts = map[string]Cost{
 	"claude-3-haiku-20240307":  {Input: 0.25 / 1000000, Output: 1.25 / 1000000},
 	"claude-3-sonnet-20240229": {Input: 3.0 / 1000000, Output: 15.0 / 1000000},
 	"claude-3-opus-20240229":   {Input: 15.0 / 1000000, Output: 75.0 / 1000000},
+	"gpt-4-turbo":              {Input: 10.0 / 1000000, Output: 30.0 / 1000000},
 }
 
 type TextContent struct {
@@ -75,7 +77,14 @@ type ResponseContentText struct {
 	Text string `json:"text"`
 }
 
+type Choices struct {
+	Index        int     `json:"index"`
+	Message      Message `json:"message"`
+	FinsihReason string  `json:"finish_reason"`
+}
+
 type ReponseBody struct {
+	Choices    []Choices             `json:"choices"`
 	Content    []ResponseContentText `json:"content"`
 	Role       []string              `json:"role"`
 	Type       string                `json:"type"`
@@ -150,64 +159,7 @@ func scrapeWebPage(url string) (string, error) {
 	return content, nil
 }
 
-func callAPI(url string, apiKey string, body RequestBody) (string, error) {
-	// Create a HTTP post request
-	jsonBody, err := json.Marshal(body)
-	if err != nil {
-		return "", err
-	}
-	// log.Println(string(jsonBody))
-	r, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
-	if err != nil {
-		return "", err
-	}
-	r.Header.Add("content-type", "application/json")
-	r.Header.Add("x-api-key", apiKey)
-	r.Header.Add("anthropic-version", "2023-06-01")
-
-	client := &http.Client{}
-	res, err := client.Do(r)
-	if err != nil {
-		return "", err
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode != http.StatusOK {
-		// write body
-		bodyBytes, _ := io.ReadAll(res.Body)
-		return "", errors.New(fmt.Sprintf("API call failed with status code %d, error: %s", res.StatusCode, string(bodyBytes)))
-	}
-
-	var responseBody ReponseBody
-	json.NewDecoder(res.Body).Decode(&responseBody)
-
-	totalCost := calculateCost(body.Model, responseBody.Usage)
-	log.Println("Usage:", responseBody.Usage)
-	log.Printf("Total Cost: $%.6f\n", totalCost)
-
-	if len(responseBody.Content) <= 0 {
-		return "", errors.New("No response content found")
-	}
-
-	return responseBody.Content[0].Text, nil
-}
-
-func callAPIStreaming(url string, apiKey string, body RequestBody) (chan string, error) {
-	// Create a HTTP post request
-	jsonBody, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-
-	r, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
-	if err != nil {
-		return nil, err
-	}
-	r.Header.Add("content-type", "application/json")
-	r.Header.Add("x-api-key", apiKey)
-	r.Header.Add("anthropic-version", "2023-06-01")
-	r.Header.Add("anthropic-beta", "messages-2023-12-15")
-
+func callAPI(r *http.Request, model string) (chan string, error) {
 	client := &http.Client{}
 	res, err := client.Do(r)
 	if err != nil {
@@ -227,7 +179,6 @@ func callAPIStreaming(url string, apiKey string, body RequestBody) (chan string,
 	go func() {
 		defer close(respChan)
 		defer res.Body.Close()
-		model := body.Model
 		var usage Usage
 
 		// Read the response body line by line
@@ -245,8 +196,27 @@ func callAPIStreaming(url string, apiKey string, body RequestBody) (chan string,
 				continue
 			}
 
-			// Check if the line is a content_block_delta event
-			if strings.HasPrefix(line, "data:") && strings.Contains(line, "content_block_delta") {
+			// {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1694268190,"model":"gpt-3.5-turbo-0125", "system_fingerprint": "fp_44709d6fcb", "choices":[{"index":0,"delta":{"content":"Hello"},"logprobs":null,"finish_reason":null}]}
+			if strings.HasPrefix(line, "data:") && strings.Contains(line, "gpt-4-turbo") {
+				var data struct {
+					ID      string `json:"id"`
+					Choices []struct {
+						FinishReason string `json:"finish_reason"`
+						Delta        struct {
+							Content string `json:"content"`
+						} `json:"delta"`
+					} `json:"choices"`
+				}
+				line = strings.TrimPrefix(line, "data:")
+				if err := json.Unmarshal([]byte(line), &data); err == nil {
+					if data.Choices[0].FinishReason == "stop" {
+						break
+					}
+					text := data.Choices[0].Delta.Content
+					respChan <- text
+				}
+			} else if strings.HasPrefix(line, "data:") && strings.Contains(line, "content_block_delta") {
+				// Check if the line is a content_block_delta event
 				var data struct {
 					Type  string `json:"type"`
 					Delta struct {
@@ -323,14 +293,6 @@ func isAcceptedImageFile(file string) (string, bool) {
 func main() {
 	var model string
 	var maxTokens int
-	var stream bool
-
-	apiURL := "https://api.anthropic.com/v1/messages"
-	apiKey := os.Getenv("ANTHROPIC_API_KEY")
-	if apiKey == "" {
-		log.Println("Error: ANTHROPIC_API_KEY environment variable is not set")
-		os.Exit(1)
-	}
 
 	tmpl := template.Must(template.New("documents").Parse(documentTemplate))
 
@@ -339,6 +301,24 @@ func main() {
 		Short: "CLI tool to interact with the Anthropic API. Messages can be written text or image files.",
 		Args:  cobra.MinimumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
+			var url, apiKey string
+
+			if model == "gpt" {
+				url = "https://api.openai.com/v1/chat/completions"
+				apiKey = os.Getenv("OPENAI_API_KEY")
+				if apiKey == "" {
+					log.Println("Error: OPENAI_API_KEY environment variable is not set")
+					os.Exit(1)
+				}
+			} else {
+				url = "https://api.anthropic.com/v1/messages"
+				apiKey = os.Getenv("ANTHROPIC_API_KEY")
+				if apiKey == "" {
+					log.Println("Error: ANTHROPIC_API_KEY environment variable is not set")
+					os.Exit(1)
+				}
+			}
+
 			// Combine context and user message
 			if len(args) <= 0 {
 				log.Println("Error: No messages provided")
@@ -411,26 +391,42 @@ func main() {
 				Messages:    []Message{message},
 				MaxTokens:   maxTokens,
 				Temperature: 0.0,
-				Stream:      stream,
+				Stream:      true,
 			}
 
-			if stream {
-				// Call the API with streaming
-				respChan, err := callAPIStreaming(apiURL, apiKey, rq)
-				if err != nil {
-					log.Println("Error calling the API:", err)
-					os.Exit(1)
-				}
-				for text := range respChan {
-					fmt.Print(text)
-				}
+			// Create a HTTP post request
+			jsonBody, err := json.Marshal(rq)
+			if err != nil {
+				log.Println("Error marshalling the request body:", err)
+				os.Exit(1)
+			}
+
+			r, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
+			if err != nil {
+				log.Println("Error creating the request:", err)
+				os.Exit(1)
+			}
+
+			r.Header.Add("content-type", "application/json")
+			if model == "gpt" {
+				// add authorization header
+				r.Header.Add("Authorization", "Bearer "+apiKey)
 			} else {
-				response, err := callAPI(apiURL, apiKey, rq)
-				if err != nil {
-					log.Println("Error calling the API:", err)
-					os.Exit(1)
-				}
-				fmt.Println(response)
+				r.Header.Add("x-api-key", apiKey)
+				r.Header.Add("anthropic-version", "2023-06-01")
+			}
+
+			// Call the API with streaming
+			respChan, err := callAPI(r, models[model])
+			if err != nil {
+				log.Println("Error calling the API:", err)
+				os.Exit(1)
+			}
+			for text := range respChan {
+				fmt.Print(text)
+			}
+			if model == "gpt" {
+				log.Println("NOTE: OpenAI doesn't provide usage metrics in streaming mode !!!")
 			}
 
 		},
@@ -438,7 +434,6 @@ func main() {
 
 	rootCmd.Flags().StringVarP(&model, "model", "m", "haiku", "Model to use)")
 	rootCmd.Flags().IntVarP(&maxTokens, "max-tokens", "t", 1000, "Maximum number of tokens to generate")
-	rootCmd.Flags().BoolVarP(&stream, "stream", "s", true, "Stream the response")
 
 	if err := rootCmd.Execute(); err != nil {
 		log.Println(err)
