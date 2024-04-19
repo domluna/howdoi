@@ -27,6 +27,13 @@ var models = map[string]string{
 	"gpt":    "gpt-4-turbo",
 }
 
+var modelToProvider = map[string]string{
+	"opus":   "anthropic",
+	"sonnet": "anthropic",
+	"haiku":  "anthropic",
+	"gpt":    "openai",
+}
+
 type Cost struct {
 	// Input is the cost of tokens in the input message
 	Input float64
@@ -36,11 +43,12 @@ type Cost struct {
 
 // Cost per token
 var modelCosts = map[string]Cost{
-
-	"claude-3-haiku-20240307":  {Input: 0.25 / 1000000, Output: 1.25 / 1000000},
-	"claude-3-sonnet-20240229": {Input: 3.0 / 1000000, Output: 15.0 / 1000000},
-	"claude-3-opus-20240229":   {Input: 15.0 / 1000000, Output: 75.0 / 1000000},
-	"gpt-4-turbo":              {Input: 10.0 / 1000000, Output: 30.0 / 1000000},
+	"claude-3-haiku-20240307":        {Input: 0.25 / 1000000, Output: 1.25 / 1000000},
+	"claude-3-sonnet-20240229":       {Input: 3.0 / 1000000, Output: 15.0 / 1000000},
+	"claude-3-opus-20240229":         {Input: 15.0 / 1000000, Output: 75.0 / 1000000},
+	"gpt-4-turbo":                    {Input: 10.0 / 1000000, Output: 30.0 / 1000000},
+	"meta-llama/Llama-3-8b-chat-hf":  {Input: 0.30 / 1000000, Output: 0.30 / 1000000},
+	"meta-llama/Llama-3-70b-chat-hf": {Input: 0.9 / 1000000, Output: 0.9 / 1000000},
 }
 
 type TextContent struct {
@@ -159,7 +167,7 @@ func scrapeWebPage(url string) (string, error) {
 	return content, nil
 }
 
-func callAPI(r *http.Request, model string) (chan string, error) {
+func callAPI(model string, r *http.Request) (chan string, error) {
 	client := &http.Client{}
 	res, err := client.Do(r)
 	if err != nil {
@@ -167,19 +175,17 @@ func callAPI(r *http.Request, model string) (chan string, error) {
 	}
 
 	if res.StatusCode != http.StatusOK {
-		// write body
 		bodyBytes, _ := io.ReadAll(res.Body)
 		return nil, errors.New(fmt.Sprintf("API call failed with status code %d, error: %s", res.StatusCode, string(bodyBytes)))
 	}
 
-	// Set up the streaming response channel
 	respChan := make(chan string)
-
-	// Handle the streaming response
 	go func() {
 		defer close(respChan)
 		defer res.Body.Close()
 		var usage Usage
+
+		t1 := time.Now()
 
 		// Read the response body line by line
 		buf := bufio.NewReader(res.Body)
@@ -253,10 +259,12 @@ func callAPI(r *http.Request, model string) (chan string, error) {
 				}
 			}
 		}
+		t2 := time.Now()
 		time.Sleep(100 * time.Millisecond)
 		totalCost := calculateCost(model, usage)
 		fmt.Print("\n\n")
 		log.Printf("Usage: %s, Total Cost: $%.6f\n", usage, totalCost)
+		log.Printf("Tokens per second: %.2f\n", float64(usage.OutputTokens)/t2.Sub(t1).Seconds())
 	}()
 
 	return respChan, nil
@@ -301,34 +309,36 @@ func main() {
 		Short: "CLI tool to interact with the Anthropic API. Messages can be written text or image files.",
 		Args:  cobra.MinimumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			var url, apiKey string
+			var url, apiKey, envKey string
+			// Check if the model is supported
+			_, ok := models[model]
+			if !ok {
+				log.Println("Error: Unsupported model")
+				os.Exit(1)
+			}
 
-			if model == "gpt" {
+			provider, _ := modelToProvider[model]
+
+			if provider == "openai" {
 				url = "https://api.openai.com/v1/chat/completions"
-				apiKey = os.Getenv("OPENAI_API_KEY")
-				if apiKey == "" {
-					log.Println("Error: OPENAI_API_KEY environment variable is not set")
-					os.Exit(1)
-				}
-			} else {
+				envKey = "OPENAI_API_KEY"
+			} else if provider == "anthropic" {
 				url = "https://api.anthropic.com/v1/messages"
-				apiKey = os.Getenv("ANTHROPIC_API_KEY")
-				if apiKey == "" {
-					log.Println("Error: ANTHROPIC_API_KEY environment variable is not set")
-					os.Exit(1)
-				}
+				envKey = "ANTHROPIC_API_KEY"
+			} else {
+				log.Println("Error: Unsupported provider")
+				os.Exit(1)
+			}
+
+			apiKey = os.Getenv(envKey)
+			if apiKey == "" {
+				log.Printf("Error: %s environment variable is not set\n", envKey)
+				os.Exit(1)
 			}
 
 			// Combine context and user message
 			if len(args) <= 0 {
 				log.Println("Error: No messages provided")
-				os.Exit(1)
-			}
-
-			// Check if the model is supported
-			_, ok := models[model]
-			if !ok {
-				log.Println("Error: Unsupported model")
 				os.Exit(1)
 			}
 
@@ -408,16 +418,17 @@ func main() {
 			}
 
 			r.Header.Add("content-type", "application/json")
-			if model == "gpt" {
+			if provider == "openai" {
 				// add authorization header
 				r.Header.Add("Authorization", "Bearer "+apiKey)
-			} else {
+			} else if provider == "anthropic" {
 				r.Header.Add("x-api-key", apiKey)
 				r.Header.Add("anthropic-version", "2023-06-01")
 			}
 
-			// Call the API with streaming
-			respChan, err := callAPI(r, models[model])
+			log.Println("Calling the API ... ", url, models[model])
+
+			respChan, err := callAPI(models[model], r)
 			if err != nil {
 				log.Println("Error calling the API:", err)
 				os.Exit(1)
@@ -425,7 +436,7 @@ func main() {
 			for text := range respChan {
 				fmt.Print(text)
 			}
-			if model == "gpt" {
+			if provider == "openai" {
 				log.Println("NOTE: OpenAI doesn't provide usage metrics in streaming mode !!!")
 			}
 
