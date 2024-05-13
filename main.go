@@ -24,7 +24,7 @@ var models = map[string]string{
 	"opus":   "claude-3-opus-20240229",
 	"sonnet": "claude-3-sonnet-20240229",
 	"haiku":  "claude-3-haiku-20240307",
-	"gpt":    "gpt-4-turbo",
+	"gpt":    "gpt-4o",
 }
 
 var modelToProvider = map[string]string{
@@ -46,7 +46,7 @@ var modelCosts = map[string]Cost{
 	"claude-3-haiku-20240307":        {Input: 0.25 / 1000000, Output: 1.25 / 1000000},
 	"claude-3-sonnet-20240229":       {Input: 3.0 / 1000000, Output: 15.0 / 1000000},
 	"claude-3-opus-20240229":         {Input: 15.0 / 1000000, Output: 75.0 / 1000000},
-	"gpt-4-turbo":                    {Input: 10.0 / 1000000, Output: 30.0 / 1000000},
+	"gpt-4o":                         {Input: 10.0 / 1000000, Output: 30.0 / 1000000},
 	"meta-llama/Llama-3-8b-chat-hf":  {Input: 0.30 / 1000000, Output: 0.30 / 1000000},
 	"meta-llama/Llama-3-70b-chat-hf": {Input: 0.9 / 1000000, Output: 0.9 / 1000000},
 }
@@ -203,7 +203,7 @@ func callAPI(model string, r *http.Request) (chan string, error) {
 			}
 
 			// {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1694268190,"model":"gpt-3.5-turbo-0125", "system_fingerprint": "fp_44709d6fcb", "choices":[{"index":0,"delta":{"content":"Hello"},"logprobs":null,"finish_reason":null}]}
-			if strings.HasPrefix(line, "data:") && strings.Contains(line, "gpt-4-turbo") {
+			if strings.HasPrefix(line, "data:") && strings.Contains(line, "gpt") {
 				var data struct {
 					ID      string `json:"id"`
 					Choices []struct {
