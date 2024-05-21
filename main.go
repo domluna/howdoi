@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -18,13 +19,107 @@ import (
 
 	"github.com/gocolly/colly"
 	"github.com/spf13/cobra"
+
+	"github.com/unidoc/unipdf/v3/common"
+	"github.com/unidoc/unipdf/v3/extractor"
+	"github.com/unidoc/unipdf/v3/model"
+
+	"github.com/google/generative-ai-go/genai"
+	"google.golang.org/api/googleapi"
+	"google.golang.org/api/iterator"
+	"google.golang.org/api/option"
 )
+
+func callGeminiAPI(model string, message Message, temp float32, maxTokens int32) {
+	log.Println("Calling the Gemini API ... ", model)
+	ctx := context.Background()
+	key := os.Getenv("GEMINI_API_KEY")
+	client, err := genai.NewClient(ctx, option.WithAPIKey(key))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	c := client.GenerativeModel(model)
+	c.SetTemperature(temp)
+	c.SetMaxOutputTokens(maxTokens)
+
+	c.SafetySettings = []*genai.SafetySetting{
+		{
+			Category:  genai.HarmCategoryDangerousContent,
+			Threshold: genai.HarmBlockNone,
+		},
+		{
+			Category:  genai.HarmCategoryHarassment,
+			Threshold: genai.HarmBlockNone,
+		},
+		{
+			Category:  genai.HarmCategoryHateSpeech,
+			Threshold: genai.HarmBlockNone,
+		},
+		{
+			Category:  genai.HarmCategorySexuallyExplicit,
+			Threshold: genai.HarmBlockNone,
+		},
+	}
+
+	content := message.Content
+	parts := []genai.Part{}
+	for _, c := range content {
+		switch v := c.(type) {
+		case TextContent:
+			parts = append(parts, genai.Text(v.Text))
+		case ImageContent:
+			parts = append(parts, genai.ImageData(v.Ext, v.Raw))
+		default:
+			log.Printf("Unknown content type: %T\n", v)
+		}
+	}
+	// split them into text and image content
+
+	var usage Usage
+	t1 := time.Now()
+	iter := c.GenerateContentStream(ctx, parts...)
+	for {
+		resp, err := iter.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			var gerr *googleapi.Error
+			if !errors.As(err, &gerr) {
+				log.Fatalf("error: %s\n", err)
+			} else {
+				log.Fatalf("error details: %s\n", gerr)
+			}
+		}
+		inputTokens := resp.UsageMetadata.PromptTokenCount
+		outputTokens := resp.UsageMetadata.CandidatesTokenCount
+		usage.InputTokens += int(inputTokens)
+		usage.OutputTokens += int(outputTokens)
+		for _, cand := range resp.Candidates {
+			if cand.Content != nil {
+				for _, part := range cand.Content.Parts {
+					fmt.Print(part)
+				}
+			}
+		}
+	}
+	t2 := time.Now()
+	timeTaken := t2.Sub(t1).Seconds()
+	totalCost := calculateCost(model, usage)
+
+	fmt.Print("\n\n")
+	log.Printf("Usage: %s, Total Cost: $%.6f\n", usage, totalCost)
+	log.Printf("Tokens per second: %.2f\n", float64(usage.OutputTokens)/timeTaken)
+}
 
 var models = map[string]string{
 	"opus":   "claude-3-opus-20240229",
 	"sonnet": "claude-3-sonnet-20240229",
 	"haiku":  "claude-3-haiku-20240307",
 	"gpt":    "gpt-4o",
+	"flash":  "gemini-1.5-flash-latest",
+	"pro":    "gemini-1.5-pro-latest",
 }
 
 var modelToProvider = map[string]string{
@@ -32,6 +127,8 @@ var modelToProvider = map[string]string{
 	"sonnet": "anthropic",
 	"haiku":  "anthropic",
 	"gpt":    "openai",
+	"flash":  "google",
+	"pro":    "google",
 }
 
 type Cost struct {
@@ -46,9 +143,54 @@ var modelCosts = map[string]Cost{
 	"claude-3-haiku-20240307":        {Input: 0.25 / 1000000, Output: 1.25 / 1000000},
 	"claude-3-sonnet-20240229":       {Input: 3.0 / 1000000, Output: 15.0 / 1000000},
 	"claude-3-opus-20240229":         {Input: 15.0 / 1000000, Output: 75.0 / 1000000},
-	"gpt-4o":                         {Input: 10.0 / 1000000, Output: 30.0 / 1000000},
+	"gpt-4o":                         {Input: 5.0 / 1000000, Output: 15.0 / 1000000},
 	"meta-llama/Llama-3-8b-chat-hf":  {Input: 0.30 / 1000000, Output: 0.30 / 1000000},
 	"meta-llama/Llama-3-70b-chat-hf": {Input: 0.9 / 1000000, Output: 0.9 / 1000000},
+	"gemini-1.5-flash-latest":        {Input: 0.35 / 1000000, Output: 1.05 / 1000000},  // 2x if prompt is longer than 128k tokens
+	"gemini-1.5-pro-latest":          {Input: 3.50 / 1000000, Output: 10.50 / 1000000}, // 2x if prompt is longer than 128k tokens
+}
+
+func readPDFContent(file string) (string, error) {
+	common.SetLogger(common.NewConsoleLogger(common.LogLevelError))
+
+	f, err := os.Open(file)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	pdfReader, err := model.NewPdfReader(f)
+	if err != nil {
+		return "", err
+	}
+
+	numPages, err := pdfReader.GetNumPages()
+	if err != nil {
+		return "", err
+	}
+
+	var pdfContent bytes.Buffer
+	for i := 0; i < numPages; i++ {
+		page, err := pdfReader.GetPage(i + 1)
+		if err != nil {
+			return "", err
+		}
+
+		ex, err := extractor.New(page)
+		if err != nil {
+			return "", err
+		}
+
+		text, err := ex.ExtractText()
+		if err != nil {
+			return "", err
+		}
+
+		pdfContent.WriteString(text)
+		pdfContent.WriteString("\n")
+	}
+
+	return pdfContent.String(), nil
 }
 
 type TextContent struct {
@@ -65,6 +207,8 @@ type Source struct {
 type ImageContent struct {
 	Type   string `json:"type"`
 	Source Source `json:"source"`
+	Raw    []byte `json:"-"`
+	Ext    string `json:"-"`
 }
 
 type Message struct {
@@ -287,7 +431,7 @@ var documentTemplate = `
 `
 
 func isAcceptedImageFile(file string) (string, bool) {
-	for _, ext := range []string{".jpg", ".jpeg", ".png", ".gif", ".webp"} {
+	for _, ext := range []string{".jpg", ".jpeg", ".png", ".gif", ".webp", ".pdf"} {
 		if strings.HasSuffix(strings.ToLower(file), ext) {
 			if ext == ".jpg" {
 				return ".jpeg", true
@@ -325,6 +469,8 @@ func main() {
 			} else if provider == "anthropic" {
 				url = "https://api.anthropic.com/v1/messages"
 				envKey = "ANTHROPIC_API_KEY"
+			} else if provider == "google" {
+				envKey = "GEMINI_API_KEY"
 			} else {
 				log.Println("Error: Unsupported provider")
 				os.Exit(1)
@@ -346,14 +492,32 @@ func main() {
 			for _, a := range args {
 				if isFile(a) {
 					if ext, ok := isAcceptedImageFile(a); ok {
-						imageContent, err := os.ReadFile(a)
-						if err != nil {
-							log.Println("Error reading image file:", err)
-							os.Exit(1)
+						if ext == ".pdf" {
+							fileContent, err := readPDFContent(a)
+							if err != nil {
+								log.Println("Error reading PDF file:", err)
+								os.Exit(1)
+							}
+							d := Document{
+								Source:  a,
+								Content: fileContent,
+							}
+							var docBuffer bytes.Buffer
+							if err := tmpl.Execute(&docBuffer, d); err != nil {
+								log.Println("Error rendering the template:", err)
+								os.Exit(1)
+							}
+							message.Content = append(message.Content, TextContent{Type: "text", Text: docBuffer.String()})
+						} else {
+							imageContent, err := os.ReadFile(a)
+							if err != nil {
+								log.Println("Error reading image file:", err)
+								os.Exit(1)
+							}
+							base64String := base64.StdEncoding.EncodeToString(imageContent)
+							src := Source{Data: base64String, MediaType: "image/" + ext[1:], Type: "base64"}
+							message.Content = append(message.Content, ImageContent{Type: "image", Source: src, Raw: imageContent, Ext: ext})
 						}
-						base64String := base64.StdEncoding.EncodeToString(imageContent)
-						src := Source{Data: base64String, MediaType: "image/" + ext[1:], Type: "base64"}
-						message.Content = append(message.Content, ImageContent{Type: "image", Source: src})
 					} else {
 						fileContent, err := os.ReadFile(a)
 						// get the name of the file
@@ -396,54 +560,59 @@ func main() {
 				}
 			}
 
-			rq := RequestBody{
-				Model:       models[model],
-				Messages:    []Message{message},
-				MaxTokens:   maxTokens,
-				Temperature: 0.0,
-				Stream:      true,
-			}
+			if provider == "openai" || provider == "anthropic" {
 
-			// Create a HTTP post request
-			jsonBody, err := json.Marshal(rq)
-			if err != nil {
-				log.Println("Error marshalling the request body:", err)
-				os.Exit(1)
-			}
+				rq := RequestBody{
+					Model:       models[model],
+					Messages:    []Message{message},
+					MaxTokens:   maxTokens,
+					Temperature: 0.0,
+					Stream:      true,
+				}
 
-			r, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
-			if err != nil {
-				log.Println("Error creating the request:", err)
-				os.Exit(1)
-			}
+				// Create a HTTP post request
+				jsonBody, err := json.Marshal(rq)
+				if err != nil {
+					log.Println("Error marshalling the request body:", err)
+					os.Exit(1)
+				}
 
-			r.Header.Add("content-type", "application/json")
-			if provider == "openai" {
-				// add authorization header
-				r.Header.Add("Authorization", "Bearer "+apiKey)
-			} else if provider == "anthropic" {
-				r.Header.Add("x-api-key", apiKey)
-				r.Header.Add("anthropic-version", "2023-06-01")
-			}
+				r, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
+				if err != nil {
+					log.Println("Error creating the request:", err)
+					os.Exit(1)
+				}
 
-			log.Println("Calling the API ... ", url, models[model])
+				r.Header.Add("content-type", "application/json")
+				if provider == "openai" {
+					// add authorization header
+					r.Header.Add("Authorization", "Bearer "+apiKey)
+				} else if provider == "anthropic" {
+					r.Header.Add("x-api-key", apiKey)
+					r.Header.Add("anthropic-version", "2023-06-01")
+				}
 
-			respChan, err := callAPI(models[model], r)
-			if err != nil {
-				log.Println("Error calling the API:", err)
-				os.Exit(1)
-			}
-			for text := range respChan {
-				fmt.Print(text)
-			}
-			if provider == "openai" {
-				log.Println("NOTE: OpenAI doesn't provide usage metrics in streaming mode !!!")
+				log.Println("Calling the API ... ", url, models[model])
+
+				respChan, err := callAPI(models[model], r)
+				if err != nil {
+					log.Println("Error calling the API:", err)
+					os.Exit(1)
+				}
+				for text := range respChan {
+					fmt.Print(text)
+				}
+				if provider == "openai" {
+					log.Println("NOTE: OpenAI doesn't provide usage metrics in streaming mode !!!")
+				}
+			} else if provider == "google" {
+				callGeminiAPI(models[model], message, 0.0, int32(maxTokens))
 			}
 
 		},
 	}
 
-	rootCmd.Flags().StringVarP(&model, "model", "m", "haiku", "Model to use)")
+	rootCmd.Flags().StringVarP(&model, "model", "m", "flash", "Model to use)")
 	rootCmd.Flags().IntVarP(&maxTokens, "max-tokens", "t", 1000, "Maximum number of tokens to generate")
 
 	if err := rootCmd.Execute(); err != nil {
