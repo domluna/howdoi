@@ -115,7 +115,7 @@ func callGeminiAPI(model string, message Message, temp float32, maxTokens int32)
 
 var models = map[string]string{
 	"opus":   "claude-3-opus-20240229",
-	"sonnet": "claude-3-sonnet-20240229",
+	"sonnet": "claude-3-5-sonnet-20240620",
 	"haiku":  "claude-3-haiku-20240307",
 	"gpt":    "gpt-4o",
 	"flash":  "gemini-1.5-flash-latest",
@@ -209,6 +209,15 @@ type ImageContent struct {
 	Source Source `json:"source"`
 	Raw    []byte `json:"-"`
 	Ext    string `json:"-"`
+}
+
+type ImageContentOpenAI struct {
+	Type     string                   `json:"type"`
+	ImageURL ImageContentOpenAISource `json:"image_url"`
+}
+
+type ImageContentOpenAISource struct {
+	Url string `json:"url"`
 }
 
 type Message struct {
@@ -445,6 +454,7 @@ func isAcceptedImageFile(file string) (string, bool) {
 func main() {
 	var model string
 	var maxTokens int
+	var temperature float32
 
 	tmpl := template.Must(template.New("documents").Parse(documentTemplate))
 
@@ -515,8 +525,19 @@ func main() {
 								os.Exit(1)
 							}
 							base64String := base64.StdEncoding.EncodeToString(imageContent)
-							src := Source{Data: base64String, MediaType: "image/" + ext[1:], Type: "base64"}
-							message.Content = append(message.Content, ImageContent{Type: "image", Source: src, Raw: imageContent, Ext: ext})
+
+							if provider == "openai" {
+								imgContent := ImageContentOpenAI{
+									Type: "image_url",
+									ImageURL: ImageContentOpenAISource{
+										Url: fmt.Sprintf("data:image/%s;base64,%s", ext, base64String),
+									},
+								}
+								message.Content = append(message.Content, imgContent)
+							} else {
+								src := Source{Data: base64String, MediaType: "image/" + ext[1:], Type: "base64"}
+								message.Content = append(message.Content, ImageContent{Type: "image", Source: src, Raw: imageContent, Ext: ext})
+							}
 						}
 					} else {
 						fileContent, err := os.ReadFile(a)
@@ -566,7 +587,7 @@ func main() {
 					Model:       models[model],
 					Messages:    []Message{message},
 					MaxTokens:   maxTokens,
-					Temperature: 0.0,
+					Temperature: float64(temperature),
 					Stream:      true,
 				}
 
@@ -606,14 +627,15 @@ func main() {
 					log.Println("NOTE: OpenAI doesn't provide usage metrics in streaming mode !!!")
 				}
 			} else if provider == "google" {
-				callGeminiAPI(models[model], message, 0.0, int32(maxTokens))
+				callGeminiAPI(models[model], message, temperature, int32(maxTokens))
 			}
 
 		},
 	}
 
 	rootCmd.Flags().StringVarP(&model, "model", "m", "flash", "Model to use)")
-	rootCmd.Flags().IntVarP(&maxTokens, "max-tokens", "t", 1000, "Maximum number of tokens to generate")
+	rootCmd.Flags().IntVarP(&maxTokens, "max-tokens", "t", 2048, "Maximum number of tokens to generate")
+	rootCmd.Flags().Float32VarP(&temperature, "temperature", "e", 0.0, "Temperature")
 
 	if err := rootCmd.Execute(); err != nil {
 		log.Println(err)
