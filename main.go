@@ -460,7 +460,7 @@ func main() {
 
 	var rootCmd = &cobra.Command{
 		Use:   "howdoi [messages...]",
-		Short: "CLI tool to interact with the Anthropic API. Messages can be written text or image files.",
+		Short: "CLI tool to interact with LLM APIs. Messages can be written text or image files.",
 		Args:  cobra.MinimumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			var url, apiKey, envKey string

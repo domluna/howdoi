@@ -1,8 +1,10 @@
 # How Do I?
 
-Simple CLI tool that targets Anthropic Claude 3 LLM APIs to figure how to do stuff quickly!
+Simple CLI tool that targets LLM APIs to figure how to do stuff quickly!
 
-Haiku is the model used by default. You can change the model to "sonnet" or "opus" with the -m flag: `... -m "opus"`.
+Gemini Flash is the model used by default. You can change the model with the -m flag: `... -m "opus"`.
+
+Supports Anthropic, Gemini, and GPT models.
 
 ![Img](./img.png)
 
@@ -12,7 +14,13 @@ Download:
 
 You can download the latest release from the releases tab.
 
-Export your api key as `ANTHROPIC_API_KEY`.
+Export the key for the model(s) you want to use:
+
+```sh
+`ANTHROPIC_API_KEY`.
+`GEMINI_API_KEY`.
+`OPENAI_API_KEY`.
+```
 
 ## Usage
 
@@ -26,15 +34,16 @@ howdoi animal.png "what is the animal in the image"
 ### Flags
 
 ```sh
+CLI tool to interact with LLM APIs. Messages can be written text or image files.
 
 Usage:
   howdoi [messages...] [flags]
 
 Flags:
-  -h, --help             help for howdoi
-  -t, --max-tokens int   Maximum number of tokens to generate (default 1000)
-  -m, --model string     Model to use) (default "haiku")
-  -s, --stream           Stream the response (default true)
+  -h, --help                  help for howdoi
+  -t, --max-tokens int        Maximum number of tokens to generate (default 2048)
+  -m, --model string          Model to use) (default "flash")
+  -e, --temperature float32   Temperature
 ```
 
 ## Examples
@@ -146,7 +155,7 @@ Ok, now this actually works!
 
 Content is written to stdout so you can pipe the content to a file.
 
-```
+```sh
 λ ~/code/howdoi: howdoi "add a line break to a markdown file. the line break should be visible, like a clear separation of two sections" > foo.txt
 2024/04/02 15:34:47 Usage: Input Tokens: 30, Output Tokens: 75, Total Cost: $0.000101
 λ ~/code/howdoi: cat foo.txt
