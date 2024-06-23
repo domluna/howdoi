@@ -141,13 +141,14 @@ type Cost struct {
 // Cost per token
 var modelCosts = map[string]Cost{
 	"claude-3-haiku-20240307":        {Input: 0.25 / 1000000, Output: 1.25 / 1000000},
-	"claude-3-sonnet-20240229":       {Input: 3.0 / 1000000, Output: 15.0 / 1000000},
+	"claude-3-5-sonnet-20240620":     {Input: 3.0 / 1000000, Output: 15.0 / 1000000},
 	"claude-3-opus-20240229":         {Input: 15.0 / 1000000, Output: 75.0 / 1000000},
 	"gpt-4o":                         {Input: 5.0 / 1000000, Output: 15.0 / 1000000},
 	"meta-llama/Llama-3-8b-chat-hf":  {Input: 0.30 / 1000000, Output: 0.30 / 1000000},
 	"meta-llama/Llama-3-70b-chat-hf": {Input: 0.9 / 1000000, Output: 0.9 / 1000000},
-	"gemini-1.5-flash-latest":        {Input: 0.35 / 1000000, Output: 1.05 / 1000000},  // 2x if prompt is longer than 128k tokens
-	"gemini-1.5-pro-latest":          {Input: 3.50 / 1000000, Output: 10.50 / 1000000}, // 2x if prompt is longer than 128k tokens
+	// not sure how tokens are counted with gemini
+	"gemini-1.5-flash-latest": {Input: 0.35 / 1000000, Output: 1.05 / 1000000},  // 2x if prompt is longer than 128k tokens
+	"gemini-1.5-pro-latest":   {Input: 3.50 / 1000000, Output: 10.50 / 1000000}, // 2x if prompt is longer than 128k tokens
 }
 
 func readPDFContent(file string) (string, error) {
@@ -633,7 +634,7 @@ func main() {
 		},
 	}
 
-	rootCmd.Flags().StringVarP(&model, "model", "m", "flash", "Model to use)")
+	rootCmd.Flags().StringVarP(&model, "model", "m", "sonnet", "Model to use)")
 	rootCmd.Flags().IntVarP(&maxTokens, "max-tokens", "t", 2048, "Maximum number of tokens to generate")
 	rootCmd.Flags().Float32VarP(&temperature, "temperature", "e", 0.0, "Temperature")
 
