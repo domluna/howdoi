@@ -312,6 +312,11 @@ func scrapeWebPage(url string) (string, error) {
 			content = e.Text
 		})
 	}
+	if content == "" {
+		c.OnHTML("div#CONTENT", func(e *colly.HTMLElement) {
+			content = e.Text
+		})
+	}
 
 	err := c.Visit(url)
 	if err != nil {
