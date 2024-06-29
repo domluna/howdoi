@@ -641,7 +641,7 @@ func main() {
 
 	rootCmd.Flags().StringVarP(&model, "model", "m", "sonnet", "Model to use)")
 	rootCmd.Flags().IntVarP(&maxTokens, "max-tokens", "t", 2048, "Maximum number of tokens to generate")
-	rootCmd.Flags().Float32VarP(&temperature, "temperature", "e", 0.0, "Temperature")
+	rootCmd.Flags().Float32VarP(&temperature, "temperature", "e", 0.10, "Temperature")
 
 	if err := rootCmd.Execute(); err != nil {
 		log.Println(err)
