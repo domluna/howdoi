@@ -30,8 +30,10 @@ import (
 	"google.golang.org/api/option"
 )
 
-func callGeminiAPI(model string, message Message, temp float32, maxTokens int32) {
-	log.Println("Calling the Gemini API ... ", model)
+func callGeminiAPI(model string, message Message, temp float32, maxTokens int32, verbose bool) {
+	if verbose {
+		log.Println("Calling the API ... ", model)
+	}
 	ctx := context.Background()
 	key := os.Getenv("GEMINI_API_KEY")
 	client, err := genai.NewClient(ctx, option.WithAPIKey(key))
@@ -108,9 +110,11 @@ func callGeminiAPI(model string, message Message, temp float32, maxTokens int32)
 	timeTaken := t2.Sub(t1).Seconds()
 	totalCost := calculateCost(model, usage)
 
-	fmt.Print("\n\n")
-	log.Printf("Usage: %s, Total Cost: $%.6f\n", usage, totalCost)
-	log.Printf("Tokens per second: %.2f\n", float64(usage.OutputTokens)/timeTaken)
+	if verbose {
+		fmt.Print("\n\n")
+		log.Printf("Usage: %s, Total Cost: $%.6f\n", usage, totalCost)
+		log.Printf("Tokens per second: %.2f\n", float64(usage.OutputTokens)/timeTaken)
+	}
 }
 
 var models = map[string]string{
@@ -326,7 +330,10 @@ func scrapeWebPage(url string) (string, error) {
 	return content, nil
 }
 
-func callAPI(model string, r *http.Request) (chan string, error) {
+func callAPI(model string, r *http.Request, verbose bool) (chan string, error) {
+	if verbose {
+		log.Println("Calling the API ... ", model)
+	}
 	client := &http.Client{}
 	res, err := client.Do(r)
 	if err != nil {
@@ -421,9 +428,11 @@ func callAPI(model string, r *http.Request) (chan string, error) {
 		t2 := time.Now()
 		time.Sleep(100 * time.Millisecond)
 		totalCost := calculateCost(model, usage)
-		fmt.Print("\n\n")
-		log.Printf("Usage: %s, Total Cost: $%.6f\n", usage, totalCost)
-		log.Printf("Tokens per second: %.2f\n", float64(usage.OutputTokens)/t2.Sub(t1).Seconds())
+		if verbose {
+			fmt.Print("\n\n")
+			log.Printf("Usage: %s, Total Cost: $%.6f\n", usage, totalCost)
+			log.Printf("Tokens per second: %.2f\n", float64(usage.OutputTokens)/t2.Sub(t1).Seconds())
+		}
 	}()
 
 	return respChan, nil
@@ -461,6 +470,7 @@ func main() {
 	var model string
 	var maxTokens int
 	var temperature float32
+	var verbose bool
 
 	tmpl := template.Must(template.New("documents").Parse(documentTemplate))
 
@@ -619,9 +629,7 @@ func main() {
 					r.Header.Add("anthropic-version", "2023-06-01")
 				}
 
-				log.Println("Calling the API ... ", url, models[model])
-
-				respChan, err := callAPI(models[model], r)
+				respChan, err := callAPI(models[model], r, verbose)
 				if err != nil {
 					log.Println("Error calling the API:", err)
 					os.Exit(1)
@@ -629,19 +637,17 @@ func main() {
 				for text := range respChan {
 					fmt.Print(text)
 				}
-				if provider == "openai" {
-					log.Println("NOTE: OpenAI doesn't provide usage metrics in streaming mode !!!")
-				}
 			} else if provider == "google" {
-				callGeminiAPI(models[model], message, temperature, int32(maxTokens))
+				callGeminiAPI(models[model], message, temperature, int32(maxTokens), verbose)
 			}
 
 		},
 	}
 
 	rootCmd.Flags().StringVarP(&model, "model", "m", "sonnet", "Model to use)")
-	rootCmd.Flags().IntVarP(&maxTokens, "max-tokens", "t", 2048, "Maximum number of tokens to generate")
+	rootCmd.Flags().IntVarP(&maxTokens, "max-tokens", "t", 4096, "Maximum number of tokens to generate")
 	rootCmd.Flags().Float32VarP(&temperature, "temperature", "e", 0.10, "Temperature")
+	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbosity")
 
 	if err := rootCmd.Execute(); err != nil {
 		log.Println(err)
