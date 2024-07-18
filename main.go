@@ -361,7 +361,6 @@ func callAPI(model string, r *http.Request, verbose bool) (chan string, error) {
 
 		t1 := time.Now()
 
-		// Read the response body line by line
 		buf := bufio.NewReader(res.Body)
 		for {
 			line, err := buf.ReadString('\n')
@@ -375,6 +374,7 @@ func callAPI(model string, r *http.Request, verbose bool) (chan string, error) {
 			if line == "" || line == "\n" {
 				continue
 			} else if line == "data: [DONE]" {
+				respChan <- "\n"
 				break
 			} else if strings.HasPrefix(line, "data:") && strings.Contains(line, "gpt") {
 				var data struct {
@@ -439,7 +439,7 @@ func callAPI(model string, r *http.Request, verbose bool) (chan string, error) {
 			}
 		}
 		t2 := time.Now()
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 		totalCost := calculateCost(model, usage)
 		if verbose {
 			fmt.Print("\n\n")
