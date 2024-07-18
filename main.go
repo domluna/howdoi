@@ -122,6 +122,7 @@ var models = map[string]string{
 	"sonnet": "claude-3-5-sonnet-20240620",
 	"haiku":  "claude-3-haiku-20240307",
 	"gpt":    "gpt-4o",
+	"mini":   "gpt-4o-mini",
 	"flash":  "gemini-1.5-flash-latest",
 	"pro":    "gemini-1.5-pro-latest",
 }
@@ -131,6 +132,7 @@ var modelToProvider = map[string]string{
 	"sonnet": "anthropic",
 	"haiku":  "anthropic",
 	"gpt":    "openai",
+	"mini":   "openai",
 	"flash":  "google",
 	"pro":    "google",
 }
@@ -148,6 +150,7 @@ var modelCosts = map[string]Cost{
 	"claude-3-5-sonnet-20240620":     {Input: 3.0 / 1000000, Output: 15.0 / 1000000},
 	"claude-3-opus-20240229":         {Input: 15.0 / 1000000, Output: 75.0 / 1000000},
 	"gpt-4o":                         {Input: 5.0 / 1000000, Output: 15.0 / 1000000},
+	"gpt-4o-mini":                    {Input: 0.15 / 1000000, Output: 0.60 / 1000000},
 	"meta-llama/Llama-3-8b-chat-hf":  {Input: 0.30 / 1000000, Output: 0.30 / 1000000},
 	"meta-llama/Llama-3-70b-chat-hf": {Input: 0.9 / 1000000, Output: 0.9 / 1000000},
 	// not sure how tokens are counted with gemini
@@ -230,12 +233,17 @@ type Message struct {
 	Content []any  `json:"content"`
 }
 
+type OpenAIStreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
+}
+
 type RequestBody struct {
-	Model       string    `json:"model"`
-	Messages    []Message `json:"messages"`
-	MaxTokens   int       `json:"max_tokens"`
-	Temperature float64   `json:"temperature"`
-	Stream      bool      `json:"stream"`
+	Model         string               `json:"model"`
+	Messages      []Message            `json:"messages"`
+	MaxTokens     int                  `json:"max_tokens"`
+	Temperature   float64              `json:"temperature"`
+	Stream        bool                 `json:"stream"`
+	StreamOptions *OpenAIStreamOptions `json:"stream_options,omitempty"`
 }
 
 type ResponseContentText struct {
@@ -366,10 +374,9 @@ func callAPI(model string, r *http.Request, verbose bool) (chan string, error) {
 			}
 			if line == "" || line == "\n" {
 				continue
-			}
-
-			// {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1694268190,"model":"gpt-3.5-turbo-0125", "system_fingerprint": "fp_44709d6fcb", "choices":[{"index":0,"delta":{"content":"Hello"},"logprobs":null,"finish_reason":null}]}
-			if strings.HasPrefix(line, "data:") && strings.Contains(line, "gpt") {
+			} else if line == "data: [DONE]" {
+				break
+			} else if strings.HasPrefix(line, "data:") && strings.Contains(line, "gpt") {
 				var data struct {
 					ID      string `json:"id"`
 					Choices []struct {
@@ -378,14 +385,20 @@ func callAPI(model string, r *http.Request, verbose bool) (chan string, error) {
 							Content string `json:"content"`
 						} `json:"delta"`
 					} `json:"choices"`
+					Usage struct {
+						PromptTokens     int `json:"prompt_tokens"`
+						CompletionTokens int `json:"completion_tokens"`
+						TotalTokens      int `json:"total_tokens"`
+					} `json:"usage"`
 				}
 				line = strings.TrimPrefix(line, "data:")
 				if err := json.Unmarshal([]byte(line), &data); err == nil {
-					if data.Choices[0].FinishReason == "stop" {
-						break
+					if len(data.Choices) > 0 {
+						text := data.Choices[0].Delta.Content
+						respChan <- text
 					}
-					text := data.Choices[0].Delta.Content
-					respChan <- text
+					usage.InputTokens += data.Usage.PromptTokens
+					usage.OutputTokens += data.Usage.CompletionTokens
 				}
 			} else if strings.HasPrefix(line, "data:") && strings.Contains(line, "content_block_delta") {
 				// Check if the line is a content_block_delta event
@@ -605,6 +618,11 @@ func main() {
 					MaxTokens:   maxTokens,
 					Temperature: float64(temperature),
 					Stream:      true,
+				}
+				if provider == "openai" {
+					rq.StreamOptions = &OpenAIStreamOptions{
+						IncludeUsage: true,
+					}
 				}
 
 				// Create a HTTP post request
