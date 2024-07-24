@@ -5,6 +5,7 @@ go 1.21.3
 require (
 	github.com/gocolly/colly v1.2.0
 	github.com/google/generative-ai-go v0.12.0
+	github.com/mattn/go-sqlite3 v1.14.22
 	github.com/spf13/cobra v1.8.0
 	github.com/unidoc/unipdf/v3 v3.58.0
 	google.golang.org/api v0.181.0

@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"text/template"
 	"time"
@@ -28,6 +29,10 @@ import (
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
+
+	"database/sql"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func callGeminiAPI(model string, message Message, temp float32, maxTokens int32, verbose bool) {
@@ -589,15 +594,21 @@ func main() {
 
 					}
 				} else if isUrl(a) {
-					log.Printf("Scraping the web page: %s\n", a)
-					fileContent, err := scrapeWebPage(a)
+					content, err := getContentFromScrappyDB(a)
 					if err != nil {
-						log.Println("Error scraping the web page:", err)
-						os.Exit(1)
+						log.Printf("Error checking scrappy database: %v\n", err)
+					}
+					if content == "" {
+						log.Printf("Scraping the web page: %s\n", a)
+						content, err = scrapeWebPage(a)
+						if err != nil {
+							log.Println("Error scraping the web page:", err)
+							os.Exit(1)
+						}
 					}
 					d := Document{
 						Source:  a,
-						Content: string(fileContent),
+						Content: string(content),
 					}
 					var docBuffer bytes.Buffer
 					if err := tmpl.Execute(&docBuffer, d); err != nil {
@@ -671,4 +682,21 @@ func main() {
 		log.Println(err)
 		os.Exit(1)
 	}
+}
+
+// New function to get content from scrappy database
+func getContentFromScrappyDB(url string) (string, error) {
+	dbPath := filepath.Join(os.Getenv("HOME"), ".scrappy", "scrappy_notes.db")
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		return "", err
+	}
+	defer db.Close()
+
+	var content string
+	err = db.QueryRow("SELECT content FROM notes WHERE url = ?", url).Scan(&content)
+	if err == sql.ErrNoRows {
+		return "", nil // No content found, but not an error
+	}
+	return content, err
 }
