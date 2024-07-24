@@ -35,6 +35,110 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+type TextContent struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+type Source struct {
+	Type      string `json:"type"`
+	Data      string `json:"data"`
+	MediaType string `json:"media_type"`
+}
+
+type ImageContent struct {
+	Type   string `json:"type"`
+	Source Source `json:"source"`
+	Raw    []byte `json:"-"`
+	Ext    string `json:"-"`
+}
+
+type ImageContentOpenAI struct {
+	Type     string                   `json:"type"`
+	ImageURL ImageContentOpenAISource `json:"image_url"`
+}
+
+type ImageContentOpenAISource struct {
+	Url string `json:"url"`
+}
+
+type Message struct {
+	Role    string `json:"role"`
+	Content []any  `json:"content"`
+}
+
+type OpenAIStreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
+}
+
+type RequestBody struct {
+	Model         string               `json:"model"`
+	Messages      []Message            `json:"messages"`
+	MaxTokens     int                  `json:"max_tokens"`
+	Temperature   float64              `json:"temperature"`
+	Stream        bool                 `json:"stream"`
+	StreamOptions *OpenAIStreamOptions `json:"stream_options,omitempty"`
+	System        string               `json:"system,omitempty"` // New field for Anthropic
+}
+
+type ResponseContentText struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+type Choices struct {
+	Index        int     `json:"index"`
+	Message      Message `json:"message"`
+	FinsihReason string  `json:"finish_reason"`
+}
+
+type ReponseBody struct {
+	Choices    []Choices             `json:"choices"`
+	Content    []ResponseContentText `json:"content"`
+	Role       []string              `json:"role"`
+	Type       string                `json:"type"`
+	Usage      Usage                 `json:"usage"`
+	Model      string                `json:"model"`
+	StopReason string                `json:"stop_reason"`
+	ID         string                `json:"id"`
+}
+
+type Usage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+}
+
+func (u Usage) String() string {
+	return fmt.Sprintf("Input Tokens: %d, Output Tokens: %d", u.InputTokens, u.OutputTokens)
+}
+
+type Document struct {
+	Source  string
+	Content string
+}
+
+type Cost struct {
+	// Input is the cost of tokens in the input message
+	Input float64
+	// Output is the cost of tokens in the output message
+	Output float64
+}
+
+// Cost per token
+var modelCosts = map[string]Cost{
+	"claude-3-haiku-20240307":        {Input: 0.25 / 1000000, Output: 1.25 / 1000000},
+	"claude-3-5-sonnet-20240620":     {Input: 3.0 / 1000000, Output: 15.0 / 1000000},
+	"claude-3-opus-20240229":         {Input: 15.0 / 1000000, Output: 75.0 / 1000000},
+	"gpt-4o":                         {Input: 5.0 / 1000000, Output: 15.0 / 1000000},
+	"gpt-4o-mini":                    {Input: 0.15 / 1000000, Output: 0.60 / 1000000},
+	"meta-llama/Llama-3-8b-chat-hf":  {Input: 0.30 / 1000000, Output: 0.30 / 1000000},
+	"meta-llama/Llama-3-70b-chat-hf": {Input: 0.9 / 1000000, Output: 0.9 / 1000000},
+
+	// Not sure how tokens are counted with gemini
+	"gemini-1.5-flash-latest": {Input: 0.35 / 1000000, Output: 1.05 / 1000000},  // 2x if prompt is longer than 128k tokens
+	"gemini-1.5-pro-latest":   {Input: 3.50 / 1000000, Output: 10.50 / 1000000}, // 2x if prompt is longer than 128k tokens
+}
+
 func callGeminiAPI(model string, message Message, temp float32, maxTokens int32, verbose bool) {
 	if verbose {
 		log.Println("Calling the API ... ", model)
@@ -142,27 +246,6 @@ var modelToProvider = map[string]string{
 	"pro":    "google",
 }
 
-type Cost struct {
-	// Input is the cost of tokens in the input message
-	Input float64
-	// Output is the cost of tokens in the output message
-	Output float64
-}
-
-// Cost per token
-var modelCosts = map[string]Cost{
-	"claude-3-haiku-20240307":        {Input: 0.25 / 1000000, Output: 1.25 / 1000000},
-	"claude-3-5-sonnet-20240620":     {Input: 3.0 / 1000000, Output: 15.0 / 1000000},
-	"claude-3-opus-20240229":         {Input: 15.0 / 1000000, Output: 75.0 / 1000000},
-	"gpt-4o":                         {Input: 5.0 / 1000000, Output: 15.0 / 1000000},
-	"gpt-4o-mini":                    {Input: 0.15 / 1000000, Output: 0.60 / 1000000},
-	"meta-llama/Llama-3-8b-chat-hf":  {Input: 0.30 / 1000000, Output: 0.30 / 1000000},
-	"meta-llama/Llama-3-70b-chat-hf": {Input: 0.9 / 1000000, Output: 0.9 / 1000000},
-	// not sure how tokens are counted with gemini
-	"gemini-1.5-flash-latest": {Input: 0.35 / 1000000, Output: 1.05 / 1000000},  // 2x if prompt is longer than 128k tokens
-	"gemini-1.5-pro-latest":   {Input: 3.50 / 1000000, Output: 10.50 / 1000000}, // 2x if prompt is longer than 128k tokens
-}
-
 func readPDFContent(file string) (string, error) {
 	common.SetLogger(common.NewConsoleLogger(common.LogLevelError))
 
@@ -204,102 +287,6 @@ func readPDFContent(file string) (string, error) {
 	}
 
 	return pdfContent.String(), nil
-}
-
-type TextContent struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
-}
-
-type Source struct {
-	Type      string `json:"type"`
-	Data      string `json:"data"`
-	MediaType string `json:"media_type"`
-}
-
-type ImageContent struct {
-	Type   string `json:"type"`
-	Source Source `json:"source"`
-	Raw    []byte `json:"-"`
-	Ext    string `json:"-"`
-}
-
-type ImageContentOpenAI struct {
-	Type     string                   `json:"type"`
-	ImageURL ImageContentOpenAISource `json:"image_url"`
-}
-
-type ImageContentOpenAISource struct {
-	Url string `json:"url"`
-}
-
-type Message struct {
-	Role    string `json:"role"`
-	Content []any  `json:"content"`
-}
-
-type OpenAIStreamOptions struct {
-	IncludeUsage bool `json:"include_usage"`
-}
-
-type RequestBody struct {
-	Model         string               `json:"model"`
-	Messages      []Message            `json:"messages"`
-	MaxTokens     int                  `json:"max_tokens"`
-	Temperature   float64              `json:"temperature"`
-	Stream        bool                 `json:"stream"`
-	StreamOptions *OpenAIStreamOptions `json:"stream_options,omitempty"`
-}
-
-type ResponseContentText struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
-}
-
-type Choices struct {
-	Index        int     `json:"index"`
-	Message      Message `json:"message"`
-	FinsihReason string  `json:"finish_reason"`
-}
-
-type ReponseBody struct {
-	Choices    []Choices             `json:"choices"`
-	Content    []ResponseContentText `json:"content"`
-	Role       []string              `json:"role"`
-	Type       string                `json:"type"`
-	Usage      Usage                 `json:"usage"`
-	Model      string                `json:"model"`
-	StopReason string                `json:"stop_reason"`
-	ID         string                `json:"id"`
-}
-
-// Example Response
-// {
-//   "content": [
-//     {
-//       "text": "Hi! My name is Claude.",
-//       "type": "text"
-//     }
-//   ],
-//   "id": "msg_013Zva2CMHLNnXjNJJKqJ2EF",
-//   "model": "claude-3-opus-20240229",
-//   "role": "assistant",
-//   "stop_reason": "end_turn",
-//   "stop_sequence": null,
-//   "type": "message",
-//   "usage": {
-//     "input_tokens": 10,
-//     "output_tokens": 25
-//   }
-// }
-
-type Usage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
-}
-
-func (u Usage) String() string {
-	return fmt.Sprintf("Input Tokens: %d, Output Tokens: %d", u.InputTokens, u.OutputTokens)
 }
 
 func calculateCost(model string, usage Usage) float64 {
@@ -456,11 +443,6 @@ func callAPI(model string, r *http.Request, verbose bool) (chan string, error) {
 	return respChan, nil
 }
 
-type Document struct {
-	Source  string
-	Content string
-}
-
 var documentTemplate = `
 <document>
 <source>
@@ -489,6 +471,7 @@ func main() {
 	var maxTokens int
 	var temperature float32
 	var verbose bool
+	var systemPrompt string
 
 	tmpl := template.Must(template.New("documents").Parse(documentTemplate))
 
@@ -524,6 +507,20 @@ func main() {
 			if apiKey == "" {
 				log.Printf("Error: %s environment variable is not set\n", envKey)
 				os.Exit(1)
+			}
+
+			var systemMessage string
+			if systemPrompt != "" {
+				if isFile(systemPrompt) {
+					content, err := os.ReadFile(systemPrompt)
+					if err != nil {
+						log.Println("Error reading system prompt file:", err)
+						os.Exit(1)
+					}
+					systemMessage = string(content)
+				} else {
+					systemMessage = systemPrompt
+				}
 			}
 
 			// Combine context and user message
@@ -622,10 +619,11 @@ func main() {
 			}
 
 			if provider == "openai" || provider == "anthropic" {
+				messages := []Message{message}
 
 				rq := RequestBody{
 					Model:       models[model],
-					Messages:    []Message{message},
+					Messages:    messages,
 					MaxTokens:   maxTokens,
 					Temperature: float64(temperature),
 					Stream:      true,
@@ -633,6 +631,15 @@ func main() {
 				if provider == "openai" {
 					rq.StreamOptions = &OpenAIStreamOptions{
 						IncludeUsage: true,
+					}
+					// For OpenAI, add system message as a separate message
+					if systemMessage != "" {
+						rq.Messages = append([]Message{{Role: "system", Content: []any{TextContent{Type: "text", Text: systemMessage}}}}, rq.Messages...)
+					}
+				} else if provider == "anthropic" {
+					// For Anthropic, use the System field
+					if systemMessage != "" {
+						rq.System = systemMessage
 					}
 				}
 
@@ -642,6 +649,8 @@ func main() {
 					log.Println("Error marshalling the request body:", err)
 					os.Exit(1)
 				}
+
+				fmt.Printf("%s\n", jsonBody)
 
 				r, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
 				if err != nil {
@@ -667,6 +676,11 @@ func main() {
 					fmt.Print(text)
 				}
 			} else if provider == "google" {
+				if systemMessage != "" {
+					// Prepend system message to user message for Gemini
+					userContent := message.Content[0].(TextContent).Text
+					message.Content[0] = TextContent{Type: "text", Text: systemMessage + "\n\n" + userContent}
+				}
 				callGeminiAPI(models[model], message, temperature, int32(maxTokens), verbose)
 			}
 
@@ -677,6 +691,7 @@ func main() {
 	rootCmd.Flags().IntVarP(&maxTokens, "max-tokens", "t", 4096, "Maximum number of tokens to generate")
 	rootCmd.Flags().Float32VarP(&temperature, "temperature", "e", 0.10, "Temperature")
 	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbosity")
+	rootCmd.Flags().StringVarP(&systemPrompt, "system-prompt", "s", "", "System prompt (can be text or a file path)")
 
 	if err := rootCmd.Execute(); err != nil {
 		log.Println(err)
