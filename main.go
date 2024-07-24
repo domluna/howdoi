@@ -445,12 +445,12 @@ func callAPI(model string, r *http.Request, verbose bool) (chan string, error) {
 
 var documentTemplate = `
 <document>
-<source>
-{{.Source}}
-</source>
-<document_content>
-{{.Content}}
-</document_content>
+  <source>
+  {{.Source}}
+  </source>
+  <document_content>
+  {{.Content}}
+  </document_content>
 </document>
 `
 
