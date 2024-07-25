@@ -650,8 +650,6 @@ func main() {
 					os.Exit(1)
 				}
 
-				fmt.Printf("%s\n", jsonBody)
-
 				r, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
 				if err != nil {
 					log.Println("Error creating the request:", err)
