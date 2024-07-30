@@ -688,7 +688,7 @@ func main() {
 	rootCmd.Flags().StringVarP(&model, "model", "m", "sonnet", "Model to use)")
 	rootCmd.Flags().IntVarP(&maxTokens, "max-tokens", "t", 4096, "Maximum number of tokens to generate")
 	rootCmd.Flags().Float32VarP(&temperature, "temperature", "e", 0.10, "Temperature")
-	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbosity")
+	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", true, "Verbosity")
 	rootCmd.Flags().StringVarP(&systemPrompt, "system-prompt", "s", "", "System prompt (can be text or a file path)")
 
 	if err := rootCmd.Execute(); err != nil {
