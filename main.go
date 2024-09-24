@@ -72,13 +72,14 @@ type OpenAIStreamOptions struct {
 }
 
 type RequestBody struct {
-	Model         string               `json:"model"`
-	Messages      []Message            `json:"messages"`
-	MaxTokens     int                  `json:"max_tokens"`
-	Temperature   float64              `json:"temperature"`
-	Stream        bool                 `json:"stream"`
-	StreamOptions *OpenAIStreamOptions `json:"stream_options,omitempty"`
-	System        string               `json:"system,omitempty"` // New field for Anthropic
+	Model               string               `json:"model"`
+	Messages            []Message            `json:"messages"`
+	MaxTokens           int                  `json:"max_tokens,omitempty"`
+	MaxCompletionTokens int                  `json:"max_completion_tokens,omitempty"`
+	Temperature         float64              `json:"temperature,omitempty"`
+	Stream              bool                 `json:"stream"`
+	StreamOptions       *OpenAIStreamOptions `json:"stream_options,omitempty"`
+	System              string               `json:"system,omitempty"` // New field for Anthropic
 }
 
 type ResponseContentText struct {
@@ -92,7 +93,7 @@ type Choices struct {
 	FinsihReason string  `json:"finish_reason"`
 }
 
-type ReponseBody struct {
+type ResponseBody struct {
 	Choices    []Choices             `json:"choices"`
 	Content    []ResponseContentText `json:"content"`
 	Role       []string              `json:"role"`
@@ -126,17 +127,14 @@ type Cost struct {
 
 // Cost per token
 var modelCosts = map[string]Cost{
-	"claude-3-haiku-20240307":        {Input: 0.25 / 1000000, Output: 1.25 / 1000000},
-	"claude-3-5-sonnet-20240620":     {Input: 3.0 / 1000000, Output: 15.0 / 1000000},
-	"claude-3-opus-20240229":         {Input: 15.0 / 1000000, Output: 75.0 / 1000000},
-	"gpt-4o":                         {Input: 5.0 / 1000000, Output: 15.0 / 1000000},
-	"gpt-4o-mini":                    {Input: 0.15 / 1000000, Output: 0.60 / 1000000},
-	"meta-llama/Llama-3-8b-chat-hf":  {Input: 0.30 / 1000000, Output: 0.30 / 1000000},
-	"meta-llama/Llama-3-70b-chat-hf": {Input: 0.9 / 1000000, Output: 0.9 / 1000000},
+	"claude-3-5-sonnet-20240620": {Input: 3.0 / 1000000, Output: 15.0 / 1000000},
+	"gpt-4o-mini":                {Input: 0.15 / 1000000, Output: 0.60 / 1000000},
 
 	// Not sure how tokens are counted with gemini
 	"gemini-1.5-flash-latest": {Input: 0.35 / 1000000, Output: 1.05 / 1000000},  // 2x if prompt is longer than 128k tokens
 	"gemini-1.5-pro-latest":   {Input: 3.50 / 1000000, Output: 10.50 / 1000000}, // 2x if prompt is longer than 128k tokens
+	"o1-mini":                 {Input: 3 / 1000000, Output: 12 / 1000000},
+	"o1-preview":              {Input: 15 / 1000000, Output: 60 / 1000000},
 }
 
 func callGeminiAPI(model string, message Message, temp float32, maxTokens int32, verbose bool) {
@@ -227,21 +225,19 @@ func callGeminiAPI(model string, message Message, temp float32, maxTokens int32,
 }
 
 var models = map[string]string{
-	"opus":   "claude-3-opus-20240229",
 	"sonnet": "claude-3-5-sonnet-20240620",
-	"haiku":  "claude-3-haiku-20240307",
-	"gpt":    "gpt-4o",
 	"mini":   "gpt-4o-mini",
+	"o1":     "o1-mini",
+	"o1pro":  "o1-preview",
 	"flash":  "gemini-1.5-flash-latest",
 	"pro":    "gemini-1.5-pro-latest",
 }
 
 var modelToProvider = map[string]string{
-	"opus":   "anthropic",
 	"sonnet": "anthropic",
-	"haiku":  "anthropic",
-	"gpt":    "openai",
 	"mini":   "openai",
+	"o1":     "openai",
+	"o1p":    "openai",
 	"flash":  "google",
 	"pro":    "google",
 }
@@ -443,6 +439,58 @@ func callAPI(model string, r *http.Request, verbose bool) (chan string, error) {
 	return respChan, nil
 }
 
+func callReasoningAPI(model string, r *http.Request, verbose bool) (any, error) {
+	if verbose {
+		log.Println("Calling the API ... ", model)
+	}
+	t1 := time.Now()
+	client := &http.Client{}
+	res, err := client.Do(r)
+	if err != nil {
+		return "", err
+	}
+	t2 := time.Now()
+
+	if res.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(res.Body)
+		return "", errors.New(fmt.Sprintf("API call failed with status code %d, error: %s", res.StatusCode, string(bodyBytes)))
+	}
+
+	buf, err := io.ReadAll(res.Body)
+	if err != nil {
+		return "", err
+	}
+	fmt.Println(string(buf))
+
+	var rb struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+		Usage struct {
+			PromptTokens            int `json:"prompt_tokens"`
+			CompletionTokens        int `json:"completion_tokens"`
+			TotalTokens             int `json:"total_tokens"`
+			CompletionTokensDetails struct {
+				ReasoningTokens int `json:"reasoning_tokens"`
+			} `json:"completion_tokens_details"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(buf, &rb); err != nil {
+		return "", err
+	}
+
+	modelCost := modelCosts[model]
+	totalCost := float64(rb.Usage.PromptTokens)*modelCost.Input + float64(rb.Usage.CompletionTokens)*modelCost.Output
+
+	fmt.Print("\n\n")
+	log.Printf("Usage input = %d, output = %d, Total Cost: $%.6f\n", rb.Usage.PromptTokens, rb.Usage.CompletionTokens, totalCost)
+	log.Printf("Total time taken %.2f\n", t2.Sub(t1).Seconds())
+
+	return rb.Choices[0].Message.Content, nil
+}
+
 var documentTemplate = `
 <document>
   <source>
@@ -618,28 +666,37 @@ func main() {
 				}
 			}
 
+			isReasoningCall := model == "o1" || model == "o1p"
+
 			if provider == "openai" || provider == "anthropic" {
 				messages := []Message{message}
 
 				rq := RequestBody{
-					Model:       models[model],
-					Messages:    messages,
-					MaxTokens:   maxTokens,
-					Temperature: float64(temperature),
-					Stream:      true,
+					Model:    models[model],
+					Messages: messages,
 				}
-				if provider == "openai" {
-					rq.StreamOptions = &OpenAIStreamOptions{
-						IncludeUsage: true,
-					}
-					// For OpenAI, add system message as a separate message
-					if systemMessage != "" {
-						rq.Messages = append([]Message{{Role: "system", Content: []any{TextContent{Type: "text", Text: systemMessage}}}}, rq.Messages...)
-					}
-				} else if provider == "anthropic" {
-					// For Anthropic, use the System field
-					if systemMessage != "" {
-						rq.System = systemMessage
+
+				if isReasoningCall {
+					rq.MaxCompletionTokens = maxTokens
+					rq.Temperature = float64(1.0)
+				} else {
+					rq.MaxTokens = maxTokens
+					rq.Temperature = float64(temperature)
+					rq.Stream = true
+
+					if provider == "openai" {
+						rq.StreamOptions = &OpenAIStreamOptions{
+							IncludeUsage: true,
+						}
+						// For OpenAI, add system message as a separate message
+						if systemMessage != "" {
+							rq.Messages = append([]Message{{Role: "system", Content: []any{TextContent{Type: "text", Text: systemMessage}}}}, rq.Messages...)
+						}
+					} else if provider == "anthropic" {
+						// For Anthropic, use the System field
+						if systemMessage != "" {
+							rq.System = systemMessage
+						}
 					}
 				}
 
@@ -665,13 +722,22 @@ func main() {
 					r.Header.Add("anthropic-version", "2023-06-01")
 				}
 
-				respChan, err := callAPI(models[model], r, verbose)
-				if err != nil {
-					log.Println("Error calling the API:", err)
-					os.Exit(1)
-				}
-				for text := range respChan {
+				if isReasoningCall {
+					text, err := callReasoningAPI(models[model], r, verbose)
+					if err != nil {
+						log.Println("Error calling the reasoning API:", err)
+						os.Exit(1)
+					}
 					fmt.Print(text)
+				} else {
+					respChan, err := callAPI(models[model], r, verbose)
+					if err != nil {
+						log.Println("Error calling the API:", err)
+						os.Exit(1)
+					}
+					for text := range respChan {
+						fmt.Print(text)
+					}
 				}
 			} else if provider == "google" {
 				if systemMessage != "" {
