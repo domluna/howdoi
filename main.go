@@ -133,8 +133,8 @@ var modelCosts = map[string]Cost{
 	// Not sure how tokens are counted with gemini
 	"gemini-1.5-flash-latest": {Input: 0.35 / 1000000, Output: 1.05 / 1000000},  // 2x if prompt is longer than 128k tokens
 	"gemini-1.5-pro-latest":   {Input: 3.50 / 1000000, Output: 10.50 / 1000000}, // 2x if prompt is longer than 128k tokens
-	"o1-mini":                 {Input: 3 / 1000000, Output: 12 / 1000000},
-	"o1-preview":              {Input: 15 / 1000000, Output: 60 / 1000000},
+	"o1-mini":                 {Input: 3.0 / 1000000, Output: 12.0 / 1000000},
+	"o1-preview":              {Input: 15.0 / 1000000, Output: 60.0 / 1000000},
 }
 
 func callGeminiAPI(model string, message Message, temp float32, maxTokens int32, verbose bool) {
@@ -228,7 +228,7 @@ var models = map[string]string{
 	"sonnet": "claude-3-5-sonnet-20240620",
 	"mini":   "gpt-4o-mini",
 	"o1":     "o1-mini",
-	"o1pro":  "o1-preview",
+	"o1p":    "o1-preview",
 	"flash":  "gemini-1.5-flash-latest",
 	"pro":    "gemini-1.5-pro-latest",
 }
@@ -483,6 +483,8 @@ func callReasoningAPI(model string, r *http.Request, verbose bool) (any, error) 
 
 	modelCost := modelCosts[model]
 	totalCost := float64(rb.Usage.PromptTokens)*modelCost.Input + float64(rb.Usage.CompletionTokens)*modelCost.Output
+
+	fmt.Println("ok", totalCost, modelCost, model, modelCosts)
 
 	fmt.Print("\n\n")
 	log.Printf("Usage input = %d, output = %d, Total Cost: $%.6f\n", rb.Usage.PromptTokens, rb.Usage.CompletionTokens, totalCost)
